@@ -33,6 +33,7 @@ class GraspNetDataset(Dataset):
         self.remove_invisible = remove_invisible
         self.valid_obj_idxs = valid_obj_idxs
         self.grasp_labels = grasp_labels
+        print(self.grasp_labels.keys())
         self.camera = camera
         self.augment = augment
         self.load_label = load_label

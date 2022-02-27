@@ -1,12 +1,13 @@
 """ GraspNet dataset processing with lazy loading to avoid memory hazard`.
     Author: chenxi-wang and ruiming-guo
 """
-
+print("### Using the modified version of graspnet_dataset")
 import os
 import sys
 import numpy as np
 import scipy.io as scio
 from PIL import Image
+import pdb
 
 import torch
 try:
@@ -23,7 +24,7 @@ from data_utils import CameraInfo, transform_point_cloud, create_point_cloud_fro
                             get_workspace_mask, remove_invisible_grasp_points
 
 class GraspNetDataset(Dataset):
-    def __init__(self, root, valid_obj_idxs, grasp_labels, camera='kinect', split='train', num_points=20000,
+    def __init__(self, root, valid_obj_idxs, grasp_labels, grasp_labels_list, camera='kinect', split='train', num_points=20000,
                  remove_outlier=False, remove_invisible=True, augment=False, load_label=True):
         assert(num_points<=50000)
         self.root = root
@@ -31,8 +32,11 @@ class GraspNetDataset(Dataset):
         self.num_points = num_points
         self.remove_outlier = remove_outlier
         self.remove_invisible = remove_invisible
-        self.valid_obj_idxs = valid_obj_idxs
-        self.grasp_labels = grasp_labels
+        self.valid_obj_idxs = valid_obj_idxs # a list
+        self.grasp_labels = grasp_labels # a dict -> None
+        self.grasp_labels_list = grasp_labels_list
+        print(type(valid_obj_idxs), type(grasp_labels))
+        # pdb.set_trace()
         self.camera = camera
         self.augment = augment
         self.load_label = load_label
@@ -56,6 +60,7 @@ class GraspNetDataset(Dataset):
         self.metapath = []
         self.scenename = []
         self.frameid = []
+        # GraspNetDataset 是懒加载，但label不是
         for x in tqdm(self.sceneIds, desc = 'Loading data path and collision labels...'):
             for img_num in range(256):
                 self.colorpath.append(os.path.join(root, 'scenes', x, camera, 'rgb', str(img_num).zfill(4)+'.png'))
@@ -212,7 +217,7 @@ class GraspNetDataset(Dataset):
             if (seg_sampled == obj_idx).sum() < 50:
                 continue
             object_poses_list.append(poses[:, :, i])
-            points, offsets, scores, tolerance = self.grasp_labels[obj_idx]
+            points, offsets, scores, tolerance = self._load_post(obj_idx)
             collision = self.collision_labels[scene][i] #(Np, V, A, D)
 
             # remove invisible grasp points
@@ -250,19 +255,53 @@ class GraspNetDataset(Dataset):
 
         return ret_dict
 
+    def _load_post(self, obj_idx):
+        label_path, tolerance_path = self.grasp_labels_list[obj_idx]
+
+        label = np.load(label_path)
+        tolerance = np.load(tolerance_path)
+
+        return (
+            label['points'].astype(np.float32), # (3459, 3)
+            label['offsets'].astype(np.float32),# (3459, 300, 12, 4, 3)
+            label['scores'].astype(np.float32), # (3459, 300, 12, 4)
+            tolerance                           # (3459, 300, 12, 4)
+        )
+
+    def _load_collision_label(self, scene_id, object_id):
+        return self.collision_labels[scene_id][object_id] #(Np, V, A, D)
+
+
 def load_grasp_labels(root):
     obj_names = list(range(88))
     valid_obj_idxs = []
-    grasp_labels = {}
+    grasp_labels = {} # 非得整个以数字为下标的dict，是用js用多了吧？
     for i, obj_name in enumerate(tqdm(obj_names, desc='Loading grasping labels...')):
         if i == 18: continue
         valid_obj_idxs.append(i + 1) #here align with label png
         label = np.load(os.path.join(root, 'grasp_label', '{}_labels.npz'.format(str(i).zfill(3))))
         tolerance = np.load(os.path.join(BASE_DIR, 'tolerance', '{}_tolerance.npy'.format(str(i).zfill(3))))
-        grasp_labels[i + 1] = (label['points'].astype(np.float32), label['offsets'].astype(np.float32),
-                                label['scores'].astype(np.float32), tolerance)
+        grasp_labels[i + 1] = (
+            label['points'].astype(np.float32), # (3459, 3)
+            label['offsets'].astype(np.float32),# (3459, 300, 12, 4, 3)
+            label['scores'].astype(np.float32), # (3459, 300, 12, 4)
+            tolerance                           # (3459, 300, 12, 4)
+        )
 
     return valid_obj_idxs, grasp_labels
+
+def load_grasp_labels_list(root):
+    obj_names = list(range(88))
+    valid_obj_idxs = []
+    grasp_labels_list = {} # 非得整个以数字为下标的dict，是用js用多了吧？
+    for i, obj_name in enumerate(tqdm(obj_names, desc='Loading grasping labels Paths...')):
+        if i == 18: continue # ???
+        valid_obj_idxs.append(i + 1) # here align with label png
+        label_path = os.path.join(root, 'grasp_label', '{}_labels.npz'.format(str(i).zfill(3)))
+        tolerance_path = os.path.join(BASE_DIR, 'tolerance', '{}_tolerance.npy'.format(str(i).zfill(3)))
+        grasp_labels_list[i + 1] = (label_path, tolerance_path)
+
+    return valid_obj_idxs, grasp_labels_list
 
 def collate_fn(batch):
     if type(batch[0]).__module__ == 'numpy':

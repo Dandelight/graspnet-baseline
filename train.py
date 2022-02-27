@@ -18,9 +18,12 @@ sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
 sys.path.append(os.path.join(ROOT_DIR, 'dataset'))
+sys.path.append(os.path.join(ROOT_DIR, 'prof'))
+from prof import memstat
 from graspnet import GraspNet, get_loss
 from pytorch_utils import BNMomentumScheduler
-from graspnet_dataset import GraspNetDataset, collate_fn, load_grasp_labels
+# ~~~~~!!!!!! Modified
+from graspnet_dataset_lazy import GraspNetDataset, collate_fn, load_grasp_labels_list, load_grasp_labels
 from label_generation import process_grasp_labels
 
 parser = argparse.ArgumentParser()
@@ -59,19 +62,24 @@ def log_string(out_str):
     LOG_FOUT.flush()
     print(out_str)
 
-# Init datasets and dataloaders 
+# Init datasets and dataloaders
 def my_worker_init_fn(worker_id):
     np.random.seed(np.random.get_state()[1][0] + worker_id)
     pass
 
-# Create Dataset and Dataloader
-valid_obj_idxs, grasp_labels = load_grasp_labels(cfgs.dataset_root)
-TRAIN_DATASET = GraspNetDataset(cfgs.dataset_root, valid_obj_idxs, grasp_labels, camera=cfgs.camera, split='train', num_points=cfgs.num_point, remove_outlier=True, augment=True)
-TEST_DATASET = GraspNetDataset(cfgs.dataset_root, valid_obj_idxs, grasp_labels, camera=cfgs.camera, split='test_seen', num_points=cfgs.num_point, remove_outlier=True, augment=False)
+memstat()
 
+# Create Dataset and Dataloader
+valid_obj_idxs, grasp_labels_list = load_grasp_labels_list(cfgs.dataset_root)
+TRAIN_DATASET = GraspNetDataset(cfgs.dataset_root, valid_obj_idxs, None, grasp_labels_list, camera=cfgs.camera, split='train', num_points=cfgs.num_point, remove_outlier=True, augment=True)
+memstat()
+TEST_DATASET = GraspNetDataset(cfgs.dataset_root, valid_obj_idxs, None, grasp_labels_list, camera=cfgs.camera, split='test_seen', num_points=cfgs.num_point, remove_outlier=True, augment=False)
+memstat()
 print(len(TRAIN_DATASET), len(TEST_DATASET))
+memstat()
 TRAIN_DATALOADER = DataLoader(TRAIN_DATASET, batch_size=cfgs.batch_size, shuffle=True,
     num_workers=4, worker_init_fn=my_worker_init_fn, collate_fn=collate_fn)
+memstat()
 TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=cfgs.batch_size, shuffle=False,
     num_workers=4, worker_init_fn=my_worker_init_fn, collate_fn=collate_fn)
 print(len(TRAIN_DATALOADER), len(TEST_DATALOADER))
@@ -118,6 +126,8 @@ TEST_WRITER = SummaryWriter(os.path.join(cfgs.log_dir, 'test'))
 # ------------------------------------------------------------------------- GLOBAL CONFIG END
 
 def train_one_epoch():
+    memstat()
+    print("Start the training.")
     stat_dict = {} # collect statistics
     adjust_learning_rate(optimizer, EPOCH_CNT)
     bnm_scheduler.step() # decay BN momentum
@@ -170,7 +180,7 @@ def evaluate_one_epoch():
                         batch_data_label[key][i][j] = batch_data_label[key][i][j].to(device)
             else:
                 batch_data_label[key] = batch_data_label[key].to(device)
-        
+
         # Forward pass
         with torch.no_grad():
             end_points = net(batch_data_label)
@@ -193,7 +203,8 @@ def evaluate_one_epoch():
 
 
 def train(start_epoch):
-    global EPOCH_CNT 
+    memstat()
+    global EPOCH_CNT
     min_loss = 1e10
     loss = 0
     for epoch in range(start_epoch, cfgs.max_epoch):
