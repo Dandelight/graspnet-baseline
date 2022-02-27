@@ -1,0 +1,18 @@
+version: "3"
+services:
+  pytorch: # 记住改service的名字，或者在下面加一个name字段
+    build: "."
+    ports:
+      - "0:22" # 将容器内22映射到任意端口
+    volumes:
+      - $HOME:$HOME
+      - /nvme:/nvme
+    shm_size: "32gb" # PyTorch多线程加载数据
+    stdin_open: true
+    tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: ["gpu"] # NVIDIA GPU支持
+    entrypoint: "bash"
