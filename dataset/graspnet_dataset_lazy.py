@@ -41,6 +41,7 @@ class GraspNetDataset(Dataset):
         self.augment = augment
         self.load_label = load_label
         self.collision_labels = {}
+        self.collision_labels_list = {}
 
         if split == 'train':
             self.sceneIds = list( range(100) )
@@ -70,11 +71,7 @@ class GraspNetDataset(Dataset):
                 self.scenename.append(x.strip())
                 self.frameid.append(img_num)
             if self.load_label:
-                collision_labels = np.load(os.path.join(root, 'collision_label', x.strip(),  'collision_labels.npz'))
-                self.collision_labels[x.strip()] = {}
-                for i in range(len(collision_labels)):
-                    self.collision_labels[x.strip()][i] = collision_labels['arr_{}'.format(i)]
-
+                pass
     def scene_list(self):
         return self.scenename
 
@@ -211,6 +208,9 @@ class GraspNetDataset(Dataset):
         grasp_offsets_list = []
         grasp_scores_list = []
         grasp_tolerance_list = []
+
+        collision_labels_per_scene = self._load_collision_labels(scene)
+
         for i, obj_idx in enumerate(obj_idxs):
             if obj_idx not in self.valid_obj_idxs:
                 continue
@@ -218,7 +218,7 @@ class GraspNetDataset(Dataset):
                 continue
             object_poses_list.append(poses[:, :, i])
             points, offsets, scores, tolerance = self._load_post(obj_idx)
-            collision = self.collision_labels[scene][i] #(Np, V, A, D)
+            collision = collision_labels_per_scene[i] #(Np, V, A, D)
 
             # remove invisible grasp points
             if self.remove_invisible:
@@ -268,8 +268,14 @@ class GraspNetDataset(Dataset):
             tolerance                           # (3459, 300, 12, 4)
         )
 
-    def _load_collision_label(self, scene_id, object_id):
-        return self.collision_labels[scene_id][object_id] #(Np, V, A, D)
+    def _load_collision_labels(self, scene):
+        collision_labels = np.load(os.path.join(self.root, 'collision_label', scene.strip(),  'collision_labels.npz'))
+        collision_labels_per_scene = {}
+
+        for i in range(len(collision_labels)):
+            collision_labels_per_scene[i] = collision_labels['arr_{}'.format(i)]
+
+        return collision_labels_per_scene
 
 
 def load_grasp_labels(root):
