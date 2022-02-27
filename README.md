@@ -1,3 +1,5 @@
+This fork presents train-time memory improvement. Specificailly, instead of loading training labels at once as the original repo do, we load them just before they are fed into nerual networks.
+
 # GraspNet Baseline
 Baseline model for "GraspNet-1Billion: A Large-Scale Benchmark for General Object Grasping" (CVPR 2020).
 
